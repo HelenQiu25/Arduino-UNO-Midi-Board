@@ -1,0 +1,132 @@
+/*
+  Converted for Arduino UNO: SERIAL MIDI (Hairless) instead of USB MIDI.
+  Buttons + Pots work the same as your original code.
+*/
+
+/// --- NO MIDIUSB LIBRARY ---
+#include <Arduino.h>
+
+// -------- BUTTONS --------
+const int NButtons = 4;
+const int buttonPin[NButtons] = {2, 3, 5, 7};
+
+int buttonCState[NButtons] = {};
+int buttonPState[NButtons] = {};
+
+unsigned long lastDebounceTime[NButtons] = {0};
+unsigned long debounceDelay = 50;
+
+// -------- POTS --------
+const int NPots = 8;
+const int potPin[NPots] = {A9, A8, A7, A6, A3, A2, A1, A0};
+int potCState[NPots] = {0};
+int potPState[NPots] = {0};
+int potVar = 0;
+
+int midiCState[NPots] = {0};
+int midiPState[NPots] = {0};
+
+const int TIMEOUT = 300;
+const int varThreshold = 10;
+boolean potMoving = true;
+unsigned long PTime[NPots] = {0};
+unsigned long timer[NPots] = {0};
+
+// MIDI Assignments
+byte midiCh = 1; 
+byte note = 36;  
+byte cc = 1;     
+
+// ------- SETUP -------
+void setup() {
+  // MIDI baud rate (choose one):
+  Serial.begin(115200);   // Best for Hairless
+  // Serial.begin(31250); // Real MIDI baud (DIN)
+
+  for (int i = 0; i < NButtons; i++) {
+    pinMode(buttonPin[i], INPUT_PULLUP);
+  }
+}
+
+// ------- LOOP -------
+void loop() {
+  buttons();
+  potentiometers();
+}
+
+// ------------- BUTTONS -------------
+void buttons() {
+  for (int i = 0; i < NButtons; i++) {
+
+    buttonCState[i] = digitalRead(buttonPin[i]);
+
+    if ((millis() - lastDebounceTime[i]) > debounceDelay) {
+
+      if (buttonPState[i] != buttonCState[i]) {
+        lastDebounceTime[i] = millis();
+
+        if (buttonCState[i] == LOW) {
+          // Note ON
+          noteOn(midiCh, note + i, 127);
+        } else {
+          // Note OFF
+          noteOn(midiCh, note + i, 0);
+        }
+
+        buttonPState[i] = buttonCState[i];
+      }
+    }
+  }
+}
+
+// ------------- POTS -------------
+void potentiometers() {
+
+  for (int i = 0; i < NPots; i++) {
+
+    potCState[i] = analogRead(potPin[i]);
+    midiCState[i] = map(potCState[i], 0, 1023, 0, 127);
+
+    potVar = abs(potCState[i] - potPState[i]);
+
+    if (potVar > varThreshold) {
+      PTime[i] = millis();
+    }
+
+    timer[i] = millis() - PTime[i];
+
+    potMoving = (timer[i] < TIMEOUT);
+
+    if (potMoving) {
+      if (midiPState[i] != midiCState[i]) {
+        controlChange(midiCh, cc + i, midiCState[i]);
+
+        potPState[i] = potCState[i];
+        midiPState[i] = midiCState[i];
+      }
+    }
+  }
+}
+
+// ------------ SERIAL MIDI FUNCTIONS (UNO) ------------
+
+// Standard MIDI Note On message over Serial
+void noteOn(byte channel, byte pitch, byte velocity) {
+  Serial.write(0x90 | (channel - 1)); // MIDI channels 1–16 are 0–15
+  Serial.write(pitch);
+  Serial.write(velocity);
+}
+
+// Standard MIDI Note Off
+void noteOff(byte channel, byte pitch, byte velocity) {
+  Serial.write(0x80 | (channel - 1));
+  Serial.write(pitch);
+  Serial.write(velocity);
+}
+
+// MIDI Control Change
+void controlChange(byte channel, byte control, byte value) {
+  Serial.write(0xB0 | (channel - 1));
+  Serial.write(control);
+  Serial.write(value);
+}
